@@ -34,7 +34,7 @@ def parse_probe_message(msg: str, current_probe):
         raise ValueError("Incorrect setup message")
     phase = msg_info[0]
     probe_seq_num = int(msg_info[1])
-    payload = msg_info[2]
+    payload = msg_info[2].strip()
 
     if phase != 'm':
         raise ValueError(f"Incorrect phase: {phase}")
@@ -50,7 +50,7 @@ PORT = int(sys.argv[1])
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-host = '127.0.0.1'
+host = '0.0.0.0'
 server_socket.bind((host, PORT))
 
 server_socket.listen(5)
@@ -67,34 +67,38 @@ while True:
     setup_message = client_socket.recv(1024)
     try:
         MEASUREMENT_TYPE, NUM_PROBES, MESSAGE_SIZE, SERVER_DELAY = parse_setup_message(setup_message.decode('utf-8'))
-        client_socket.send("200 OK: Ready".encode("utf-8"))
+        client_socket.sendall("200 OK: Ready".encode("utf-8"))
         print(f'Setup Message received from client: {setup_message.decode("utf-8")}')
     except Exception as e:
         print(f"Error: {e}")
-        client_socket.send("404 ERROR: Invalid Connection Setup Message".encode("utf-8"))
+        client_socket.sendall("404 ERROR: Invalid Connection Setup Message".encode("utf-8"))
         client_socket.close()
         continue
 
 
     # Measurement Phase
     for probe_sequence_num in range(1, NUM_PROBES+1):
-        probe_message = client_socket.recv(MESSAGE_SIZE + 128)
+        probe_message = bytes()
+        while len(probe_message) < (MESSAGE_SIZE + 4 + len(str(probe_sequence_num))):
+            data = client_socket.recv(1)
+            probe_message += data
+
         try:
             parse_probe_message(probe_message.decode("utf-8"), probe_sequence_num)
             time.sleep(SERVER_DELAY)
-            client_socket.send(probe_message)
+            client_socket.sendall(probe_message)
             print(f'Probe Message received from client: {probe_message.decode("utf-8")}')
         except Exception as e:
             print(f"Error: {e}")
-            client_socket.send("404 ERROR: Invalid Measurement Message".encode("utf-8"))
+            client_socket.sendall("404 ERROR: Invalid Measurement Message".encode("utf-8"))
             client_socket.close()
             continue
 
     # Termination Phase
-    term_message = client_socket.recv(1024).decode("utf-8")
+    term_message = client_socket.recv(2).decode("utf-8")
     if term_message == "t\n":
-        client_socket.send("200 OK: Closing Connection".encode("utf-8"))
+        client_socket.sendall("200 OK: Closing Connection".encode("utf-8"))
     else:
-        client_socket.send("404 ERROR: Invalid Connection Termination Message".encode("utf-8"))
+        client_socket.sendall("404 ERROR: Invalid Connection Termination Message".encode("utf-8"))
 
     client_socket.close()
